@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Groq AI Assistant - Professional Chat</title>
+    <style>
+        :root { --bg: #ffffff; --surface: #f8fafc; --text: #0f172a; --primary: #3b82f6; --secondary: #64748b; --border: #e2e8f0; --success: #10b981; }
+        [data-theme="dark"] { --bg: #0f172a; --surface: #1e293b; --text: #f1f5f9; --primary: #60a5fa; --secondary: #94a3b8; --border: #334155; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+        .container { display: flex; height: 100vh; max-width: 1400px; margin: 0 auto; }
+        .sidebar { width: 280px; background: var(--surface); border-right: 1px solid var(--border); padding: 24px; display: flex; flex-direction: column; gap: 24px; }
+        .header { font-size: 1.5rem; font-weight: 700; color: var(--primary); }
+        .model-select { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size: 14px; }
+        .theme-toggle { background: var(--primary); color: white; border: none; border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+        .main { flex: 1; display: flex; flex-direction: column; }
+        .topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+        .chat-container { flex: 1; display: flex; flex-direction: column; padding: 24px; gap: 16px; overflow: hidden; }
+        .messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 8px; }
+        .message { display: flex; gap: 12px; max-width: 80%; animation: fadeIn 0.3s ease; }
+        .message.user { flex-direction: row-reverse; }
+        .avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; }
+        .message-content { background: var(--surface); padding: 12px 16px; border-radius: 18px; border: 1px solid var(--border); }
+        .message.user .message-content { background: var(--primary); color: white; border-color: var(--primary); }
+        .typing { display: flex; gap: 4px; }
+        .typing-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--secondary); animation: typing 1.4s infinite; }
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+        .input-container { display: flex; gap: 12px; padding: 16px 24px; background: var(--surface); border-top: 1px solid var(--border); }
+        #input { flex: 1; border: 1px solid var(--border); border-radius: 24px; padding: 12px 20px; font-size: 16px; resize: none; }
+        button { background: var(--primary); color: white; border: none; border-radius: 24px; padding: 12px 20px; cursor: pointer; font-weight: 500; transition: background 0.2s; }
+        button:hover { opacity: 0.9; }
+        .clear-btn { background: var(--secondary); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes typing { 0%, 60%, 100% { transform: scale(1); } 30% { transform: scale(1.2); } }
+        @media (max-width: 768px) { .container { flex-direction: column; } .sidebar { flex-direction: row; width: auto; padding: 16px; justify-content: space-around; } .chat-container { padding: 16px; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="header">Groq AI Assistant</div>
+            <select class="model-select" id="model">
+                <option value="llama-3.3-70b-versatile">Llama 3.3 70B</option>
+                <option value="llama-3.2-90b-preview">Llama 3.2 90B</option>
+                <option value="mixtral-8x7b-32768">Mixtral 8x7B</option>
+            </select>
+            <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark</button>
+        </div>
+        <div class="main">
+            <div class="topbar">
+                <div>Status: Connected</div>
+                <div>Rate limit: 30 RPM</div>
+            </div>
+            <div class="chat-container">
+                <div class="messages" id="messages">
+                    <div class="message">
+                        <div class="avatar">AI</div>
+                        <div class="message-content">Hello! I'm powered by Groq's lightning-fast AI. Ask me anything.</div>
+                    </div>
+                </div>
+                <div id="typing" class="typing" style="display:none;">
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                </div>
+                <div class="input-container">
+                    <textarea id="input" placeholder="Type your message... (Shift+Enter for new line)" rows="1"></textarea>
+                    <button onclick="sendMessage()">Send</button>
+                    <button class="clear-btn" onclick="clearChat()">Clear</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const apiKey = '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'; // Replace with your key [web:1]
+        const baseUrl = 'https://api.groq.com/openai/v1/chat/completions';
+        const messagesEl = document.getElementById('messages');
+        const input = document.getElementById('input');
+        const modelSelect = document.getElementById('model');
+        const typingEl = document.getElementById('typing');
+        let messages = [{ role: 'system', content: 'You are a helpful AI assistant.' }];
+        let currentModel = modelSelect.value;
+
+        // Auto-resize textarea
+        input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = input.scrollHeight + 'px'; });
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
+
+        modelSelect.addEventListener('change', () => { currentModel = modelSelect.value; });
+
+        async function sendMessage() {
+            const text = input.value.trim();
+            if (!text) return;
+            input.value = '';
+            input.style.height = 'auto';
+            messages.push({ role: 'user', content: text });
+            addMessage('You', text, true);
+            showTyping(true);
+
+            try {
+                const response = await fetch(baseUrl, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messages, model: currentModel, stream: false, temperature: 0.7 })
+                });
+                if (!response.ok) throw new Error(`API error: ${response.status}`);
+                const data = await response.json();
+                const reply = data.choices[0].message.content;
+                messages.push({ role: 'assistant', content: reply });
+                addMessage('AI', reply, false);
+            } catch (error) {
+                addMessage('Error', 'Check your API key or network. Visit console.groq.com [web:1]', false);
+                console.error(error);
+            }
+            showTyping(false);
+        }
+
+        function addMessage(sender, text, isUser) {
+            const div = document.createElement('div');
+            div.className = `message ${isUser ? 'user' : ''}`;
+            div.innerHTML = `
+                <div class="avatar">${isUser ? 'U' : 'AI'}</div>
+                <div class="message-content">${text.replace(/
+/g, '<br>')}</div>
+            `;
+            messagesEl.appendChild(div);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        function showTyping(show) {
+            typingEl.style.display = show ? 'flex' : 'none';
+            if (show) messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        function clearChat() {
+            messages = [{ role: 'system', content: 'You are a helpful AI assistant.' }];
+            messagesEl.innerHTML = '';
+            addMessage('AI', 'Chat cleared. How can I help?', false);
+        }
+
+        function toggleTheme() {
+            document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+        }
+    </script>
+</body>
+</html>
